@@ -5,6 +5,25 @@ This module provides the necessary prompt templates for integrating with the
 LiteLLM proxy and LangGraph state nodes.
 """
 
+"""
+Prompt template for parsing a candidate's CV document.
+
+Input parameters:
+    cv_text (str): The raw text extracted from the candidate's CV.
+
+Expected JSON output contract:
+    {
+        "name": "str",
+        "contact": {
+            "email": "str",
+            "phone": "str"
+        },
+        "skills": ["str"],
+        "experience_years": int,
+        "education": ["str"],
+        "preferences": {}
+    }
+"""
 CV_PARSING_PROMPT = """
 You are an expert technical recruiter and career coach. Your task is to parse the following CV text and extract the candidate's profile into a structured JSON format.
 
@@ -22,6 +41,21 @@ CV Text:
 Output ONLY valid JSON.
 """
 
+"""
+Prompt template for evaluating a candidate's fit for a specific job description.
+
+Input parameters:
+    candidate_profile (str): The structured JSON profile of the candidate.
+    job_description (str): The text description of the target job.
+
+Expected JSON output contract:
+    {
+        "match_score": int (0-100),
+        "explanation": "str",
+        "missing_skills": ["str"],
+        "recommendation": "str"
+    }
+"""
 JOB_MATCHING_PROMPT = """
 You are an expert career coach analyzing how well a candidate fits a specific job description.
 
@@ -52,7 +86,7 @@ class PromptBuilder:
     @staticmethod
     def build_cv_parsing_prompt(cv_text: str) -> str:
         """
-        Builds the prompt used for parsing a candidate's CV document.
+        Build the prompt used for parsing a candidate's CV document.
 
         Args:
             cv_text (str): The raw text extracted from the candidate's CV document.
@@ -60,19 +94,21 @@ class PromptBuilder:
         Returns:
             str: A formatted string prompt instructing the LLM to extract a structured 
             JSON profile. The expected JSON output contract from the LLM contains:
-            - name (str)
-            - contact (dict: email, phone)
-            - skills (list[str])
-            - experience_years (int)
-            - education (list[str])
-            - preferences (dict)
+            {
+                "name": "str",
+                "contact": {"email": "str", "phone": "str"},
+                "skills": ["str"],
+                "experience_years": int,
+                "education": ["str"],
+                "preferences": {}
+            }
         """
         return CV_PARSING_PROMPT.format(cv_text=cv_text)
 
     @staticmethod
     def build_job_matching_prompt(candidate_profile: str, job_description: str) -> str:
         """
-        Builds the prompt used for evaluating a candidate's fit for a specific job.
+        Build the prompt used for evaluating a candidate's fit for a specific job.
 
         Args:
             candidate_profile (str): The structured JSON profile of the candidate.
@@ -81,10 +117,12 @@ class PromptBuilder:
         Returns:
             str: A formatted string prompt instructing the LLM to evaluate the match.
             The expected JSON output contract from the LLM contains:
-            - match_score (int)
-            - explanation (str)
-            - missing_skills (list[str])
-            - recommendation (str)
+            {
+                "match_score": int,
+                "explanation": "str",
+                "missing_skills": ["str"],
+                "recommendation": "str"
+            }
         """
         return JOB_MATCHING_PROMPT.format(
             candidate_profile=candidate_profile, 
