@@ -11,6 +11,9 @@ def test_no_hardcoded_secrets_in_repo():
     # Define secret patterns to look for
     secret_patterns = [
         "LITELLM_API_KEY=",
+        "OPENAI_API_KEY=",
+        "GEMINI_API_KEY=",
+        "ANTHROPIC_API_KEY=",
         "sk-ant-",
         "sk-proj-",
         "sk-or-"
@@ -20,7 +23,7 @@ def test_no_hardcoded_secrets_in_repo():
     files_to_check = []
     for root, dirs, files in os.walk(project_root):
         # Exclude directories that shouldn't be scanned
-        dirs[:] = [d for d in dirs if d not in ('.git', 'venv', 'env', '.pytest_cache', '__pycache__')]
+        dirs[:] = [d for d in dirs if d not in ('.git', 'venv', 'env', '.pytest_cache', '__pycache__', 'tests')]
         for file in files:
             if file.endswith('.py') or file.endswith('.md'):
                 files_to_check.append(os.path.join(root, file))

@@ -11,13 +11,12 @@ repos:
     rev: v1.5.0
     hooks:
     -   id: detect-secrets
-        args: ['--baseline', '.secrets.baseline']
         exclude: .*/tests/.*
 
 -   repo: local
     hooks:
-    -   id: check-litellm-keys
-        name: Check for hardcoded LiteLLM/API keys
-        entry: (?i)(LITELLM_API_KEY=|sk-ant-|sk-proj-|sk-or-)
+    -   id: check-api-keys
+        name: Check for hardcoded API keys
+        entry: (?i)(LITELLM_API_KEY=|OPENAI_API_KEY=|GEMINI_API_KEY=|ANTHROPIC_API_KEY=|sk-ant-|sk-proj-|sk-or-)
         language: pygrep
         types: [text]

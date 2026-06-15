@@ -17,8 +17,8 @@ def test_job_matching_prompt_has_placeholders():
 
 def test_no_hardcoded_secrets():
     """Ensure no hardcoded API keys are in the prompts to validate against committing secrets."""
-    # Included LiteLLM specific key prefixes if any, and generic secrets.
-    suspicious = ["sk-", "AIza", "ghp_", "LITELLM_API_KEY", "your_litellm_api_key_here"]
+    # Included API key prefixes if any, and generic secrets.
+    suspicious = ["sk-", "AIza", "ghp_", "LITELLM_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "your_litellm_api_key_here"]
     for prompt in [CV_PARSING_PROMPT, JOB_MATCHING_PROMPT]:
         for secret in suspicious:
             assert secret not in prompt, f"Found potential secret in prompt: {secret}"
