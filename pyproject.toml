@@ -1,0 +1,7 @@
+[project]
+name = "career-coach"
+version = "0.1.0"
+description = "AI-powered job matching and application support — Sprints.ai"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
