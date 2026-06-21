@@ -50,8 +50,15 @@ Input parameters:
 
 Expected JSON output contract:
     {
-        "match_score": int (0-100),
+        "score_details": {
+            "hard_skills_score": int (0-40),
+            "experience_score": int (0-30),
+            "soft_skills_score": int (0-20),
+            "logistics_score": int (0-10)
+        },
+        "total_score": int (0-100),
         "explanation": "str",
+        "strengths": ["str"],
         "missing_skills": ["str"],
         "recommendation": "str"
     }
@@ -67,8 +74,14 @@ Job Description:
 
 Based on the matching rubric, evaluate the candidate's fit for this role.
 Provide your evaluation in the following JSON structure:
-- "match_score": integer from 0 to 100
+- "score_details": object containing scoring breakdown:
+  - "hard_skills_score": integer (0 to 40)
+  - "experience_score": integer (0 to 30)
+  - "soft_skills_score": integer (0 to 20)
+  - "logistics_score": integer (0 to 10)
+- "total_score": integer from 0 to 100 (sum of the above)
 - "explanation": string detailing the reasoning for the score
+- "strengths": list of strings identifying key strengths and matching skills
 - "missing_skills": list of strings identifying skills required by the job that the candidate lacks
 - "recommendation": string with actionable advice for the candidate to improve their chances
 
@@ -118,8 +131,15 @@ class PromptBuilder:
             str: A formatted string prompt instructing the LLM to evaluate the match.
             The expected JSON output contract from the LLM contains:
             {
-                "match_score": int,
+                "score_details": {
+                    "hard_skills_score": int,
+                    "experience_score": int,
+                    "soft_skills_score": int,
+                    "logistics_score": int
+                },
+                "total_score": int,
                 "explanation": "str",
+                "strengths": ["str"],
                 "missing_skills": ["str"],
                 "recommendation": "str"
             }

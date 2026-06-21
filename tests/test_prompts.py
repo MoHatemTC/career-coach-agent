@@ -45,4 +45,6 @@ def test_prompt_builder_contracts():
     job_prompt = PromptBuilder.build_job_matching_prompt('{"name":"Test"}', "Developer Role")
     assert '{"name":"Test"}' in job_prompt
     assert "Developer Role" in job_prompt
-    assert "match_score" in job_prompt
+    assert "total_score" in job_prompt
+    assert "score_details" in job_prompt
+    assert "strengths" in job_prompt
