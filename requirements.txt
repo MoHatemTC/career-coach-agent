@@ -1,0 +1,31 @@
+# ── Core API framework ────────────────────────────────────────────────────────
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+pydantic>=2.7.0
+
+# ── Database ──────────────────────────────────────────────────────────────────
+sqlmodel>=0.0.19
+psycopg2-binary>=2.9.9
+pgvector>=0.3.2          # pgvector SQLAlchemy type (Vector column)
+alembic>=1.13.1          # optional: database migrations
+
+# ── LangChain / LangGraph ─────────────────────────────────────────────────────
+langchain>=0.2.0
+langchain-openai>=0.1.8  # ChatOpenAI + OpenAIEmbeddings
+langgraph>=0.1.0
+
+# ── Observability ─────────────────────────────────────────────────────────────
+langfuse>=2.0.0          # LLM call tracing (Langfuse cloud or self-hosted)
+prometheus-client>=0.20.0  # Prometheus Histogram for extraction latency
+
+# ── Configuration ─────────────────────────────────────────────────────────────
+python-dotenv>=1.0.0     # loads .env files in development
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+pytest>=8.2.0
+pytest-asyncio>=0.23.7
+httpx>=0.27.0            # for FastAPI TestClient async mode
+
+# ── Streamlit UI (Sprint 1) ───────────────────────────────────────────────────
+streamlit>=1.30.0
+pandas>=2.0.0

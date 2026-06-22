@@ -1,0 +1,15 @@
+{
+  "username": "student_intern",
+  "profile_data": {
+    "experience_years": "Less than 1 year",
+    "career_level": "Student",
+    "job_types": ["Full Time", "Part Time", "Internship"],
+    "workplace_settings": ["Remote", "Hybrid"],
+    "job_titles": ["AI Engineer"],
+    "job_categories": ["IT/Software Development"],
+    "minimum_salary": 15000,
+    "hide_minimum_salary": false,
+    "let_companies_find_me": true,
+    "make_profile_public": true
+  }
+}
