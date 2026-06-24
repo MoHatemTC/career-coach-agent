@@ -4,11 +4,13 @@ from typing import List
 
 class ExperiencePatterns(BaseModel):
     minimum_years: int = Field(
+        ge=0,
+        strict=True,
         description=(
             "The absolute minimum years of experience required. "
             "If stated as a range (e.g., 3-5), use the lowest number. "
             "If not specified, return 0."
-        )
+        ),
     )
     level: str = Field(
         description=(

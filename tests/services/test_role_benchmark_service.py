@@ -3,8 +3,8 @@ tests/services/test_role_benchmark_service.py
 =============================================
 Unit and persistence tests for the LangGraph role-benchmark extraction pipeline.
 
-All external I/O (LLM calls, embedding calls) is mocked so tests run without
-network access or API keys.
+All external I/O (LLM calls, embedding calls) is mocked through the
+``LLMServiceRegistry`` so tests run without network access or API keys.
 
 The persistence tests use an **in-memory SQLite database** via SQLModel so
 they run without a running Postgres instance.  The ``db_session`` pytest
@@ -14,12 +14,12 @@ Test matrix
 -----------
 * happy path            – LLM succeeds on the first attempt; extraction data,
                           embedding, and error_count are all correct.
-* retry-then-succeed    – LLM raises OutputParserException on the first call,
+* retry-then-succeed    – registry.complete raises an Exception on the first call,
                           then succeeds on the second; graph loops exactly once
                           and records 1 error entry.
-* exhaust retries       – LLM raises OutputParserException 3 times; the service
-                          raises ValueError and the embedder is never called.
-* embed failure         – extraction succeeds but the embedder raises; the error
+* exhaust retries       – registry.complete raises 3 times; the service
+                          raises ValueError and embed is never called.
+* embed failure         – extraction succeeds but registry.embed raises; the error
                           propagates correctly.
 * route-function tests  – white-box tests of route_after_extract in isolation.
 * persistence tests     – save_benchmark() writes to and reads back from an
@@ -30,10 +30,9 @@ from __future__ import annotations
 
 import os
 from typing import List
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
-from langchain_core.exceptions import OutputParserException
 from pydantic import ValidationError
 from sqlmodel import Session, SQLModel, create_engine
 
@@ -79,37 +78,23 @@ SAMPLE_JOB_TEXT = (
 )
 
 
-def _make_llm_mock(side_effects: list) -> MagicMock:
+def _make_registry_mock(
+    complete_side_effects: list,
+    embedding: List[float] = FAKE_EMBEDDING,
+) -> MagicMock:
     """
-    Build a mock LLM whose ``with_structured_output`` chain's ``.invoke``
-    cycles through *side_effects*.
+    Build a mock ``LLMServiceRegistry`` whose ``complete`` method cycles
+    through *complete_side_effects* and whose ``embed`` method returns a
+    single-element list wrapping *embedding*.
 
-    Each element of *side_effects* is either:
-    * A ``RoleBenchmark`` instance  → ``.invoke`` returns it.
-    * An ``Exception`` instance     → ``.invoke`` raises it.
-
-    The mock replicates the ``extraction_prompt | llm.with_structured_output(...)``
-    pipe operator chain that the service builds internally.
+    Each element of *complete_side_effects* is either:
+    * A ``RoleBenchmark`` instance → ``complete`` returns it.
+    * An ``Exception`` instance   → ``complete`` raises it.
     """
-    invoke_mock = MagicMock(side_effect=side_effects)
-    chain_mock = MagicMock()
-    chain_mock.invoke = invoke_mock
-
-    # extraction_prompt | llm.with_structured_output(...)  →  chain_mock
-    structured_output_mock = MagicMock()
-    structured_output_mock.__ror__ = MagicMock(return_value=chain_mock)
-
-    llm_mock = MagicMock()
-    llm_mock.with_structured_output = MagicMock(return_value=structured_output_mock)
-
-    return llm_mock
-
-
-def _make_embedder_mock(vector: List[float] = FAKE_EMBEDDING) -> MagicMock:
-    """Return a mock embedder whose ``embed_query`` returns *vector*."""
-    embedder_mock = MagicMock()
-    embedder_mock.embed_query = MagicMock(return_value=vector)
-    return embedder_mock
+    registry_mock = MagicMock()
+    registry_mock.complete = MagicMock(side_effect=complete_side_effects)
+    registry_mock.embed = MagicMock(return_value=[embedding])
+    return registry_mock
 
 
 def _make_validation_error() -> ValidationError:
@@ -122,11 +107,6 @@ def _make_validation_error() -> ValidationError:
     except ValidationError as exc:
         return exc
     raise RuntimeError("Expected ValidationError was not raised")  # pragma: no cover
-
-
-def _make_parser_exception(message: str = "LLM output did not match schema") -> OutputParserException:
-    """Construct a real ``OutputParserException`` for retry-path testing."""
-    return OutputParserException(message)
 
 
 # ---------------------------------------------------------------------------
@@ -186,13 +166,11 @@ class TestHappyPath:
         ``test_happy_path_extraction``: assert successful extraction,
         embedding produced, and error_count == 0.
         """
-        llm_mock = _make_llm_mock([VALID_BENCHMARK])
-        embedder_mock = _make_embedder_mock()
+        registry_mock = _make_registry_mock([VALID_BENCHMARK])
 
         state = run_benchmark_pipeline(
             raw_text=SAMPLE_JOB_TEXT,
-            llm=llm_mock,
-            embedder=embedder_mock,
+            registry=registry_mock,
         )
 
         # Extracted data is correct
@@ -207,26 +185,21 @@ class TestHappyPath:
         assert state["validation_errors"] == []
 
     def test_llm_invoked_exactly_once(self):
-        llm_mock = _make_llm_mock([VALID_BENCHMARK])
-        embedder_mock = _make_embedder_mock()
+        registry_mock = _make_registry_mock([VALID_BENCHMARK])
 
         run_benchmark_pipeline(
             raw_text=SAMPLE_JOB_TEXT,
-            llm=llm_mock,
-            embedder=embedder_mock,
+            registry=registry_mock,
         )
 
-        chain = llm_mock.with_structured_output.return_value.__ror__.return_value
-        assert chain.invoke.call_count == 1
+        assert registry_mock.complete.call_count == 1
 
     def test_embedder_called_with_combined_skills_and_tools(self):
-        llm_mock = _make_llm_mock([VALID_BENCHMARK])
-        embedder_mock = _make_embedder_mock()
+        registry_mock = _make_registry_mock([VALID_BENCHMARK])
 
         run_benchmark_pipeline(
             raw_text=SAMPLE_JOB_TEXT,
-            llm=llm_mock,
-            embedder=embedder_mock,
+            registry=registry_mock,
         )
 
         expected_corpus = ", ".join(
@@ -234,7 +207,7 @@ class TestHappyPath:
             + VALID_BENCHMARK.nice_to_have_skills
             + VALID_BENCHMARK.required_tools
         )
-        embedder_mock.embed_query.assert_called_once_with(expected_corpus)
+        registry_mock.embed.assert_called_once_with([expected_corpus])
 
 
 # ---------------------------------------------------------------------------
@@ -244,30 +217,27 @@ class TestHappyPath:
 
 class TestRetryLogic:
     """
-    LLM raises ``OutputParserException`` on the first call, then succeeds on
-    the second.  The graph must loop exactly once and record 1 error.
+    Registry raises an Exception on the first call, then succeeds on the second.
+    The graph must loop exactly once and record 1 error.
     """
 
     def setup_method(self):
-        parser_exc = _make_parser_exception()
-        self.llm_mock = _make_llm_mock([parser_exc, VALID_BENCHMARK])
-        self.embedder_mock = _make_embedder_mock()
+        self.registry_mock = _make_registry_mock(
+            [RuntimeError("LLM output did not match schema"), VALID_BENCHMARK]
+        )
 
         self.state = run_benchmark_pipeline(
             raw_text=SAMPLE_JOB_TEXT,
-            llm=self.llm_mock,
-            embedder=self.embedder_mock,
+            registry=self.registry_mock,
         )
 
     def test_retry_logic_recovers(self):
         """
-        ``test_retry_logic_recovers``: if the LLM raises ``OutputParserException``
-        on the first call it retries, succeeds on the second, and logs 1 error.
+        ``test_retry_logic_recovers``: if the LLM raises on the first call it
+        retries, succeeds on the second, and logs 1 error.
         """
-        chain = self.llm_mock.with_structured_output.return_value.__ror__.return_value
-
-        # The chain should have been called twice (fail + succeed)
-        assert chain.invoke.call_count == 2
+        # complete should have been called twice (fail + succeed)
+        assert self.registry_mock.complete.call_count == 2
 
         # Exactly one error was recorded
         assert self.state["error_count"] == 1
@@ -280,7 +250,7 @@ class TestRetryLogic:
         assert self.state["embedding"] == FAKE_EMBEDDING
 
     def test_embedder_called_exactly_once(self):
-        self.embedder_mock.embed_query.assert_called_once()
+        self.registry_mock.embed.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -290,54 +260,50 @@ class TestRetryLogic:
 
 class TestExhaustedRetries:
     """
-    LLM raises ``OutputParserException`` on all MAX_RETRIES attempts.
-    The service must raise ``ValueError`` and the embedder must never be called.
+    Registry raises on all MAX_RETRIES attempts.
+    The service must raise ``ValueError`` and embed must never be called.
     """
 
     def test_exhausted_retries(self):
         """
         ``test_exhausted_retries``: ``ValueError`` raised after 3 failed
-        parsing attempts; embedder is never called.
+        attempts; embed is never called.
         """
-        parser_exc = _make_parser_exception()
-        llm_mock = _make_llm_mock([parser_exc] * MAX_RETRIES)
-        embedder_mock = _make_embedder_mock()
+        registry_mock = _make_registry_mock(
+            [RuntimeError("LLM output did not match schema")] * MAX_RETRIES
+        )
 
         with pytest.raises(ValueError, match="failed after"):
             run_benchmark_pipeline(
                 raw_text=SAMPLE_JOB_TEXT,
-                llm=llm_mock,
-                embedder=embedder_mock,
+                registry=registry_mock,
             )
 
-        # Embedder must never have been touched
-        embedder_mock.embed_query.assert_not_called()
+        # embed must never have been touched
+        registry_mock.embed.assert_not_called()
 
     def test_llm_invoked_exactly_max_retries_times(self):
-        parser_exc = _make_parser_exception()
-        llm_mock = _make_llm_mock([parser_exc] * MAX_RETRIES)
-        embedder_mock = _make_embedder_mock()
+        registry_mock = _make_registry_mock(
+            [RuntimeError("LLM output did not match schema")] * MAX_RETRIES
+        )
 
         with pytest.raises(ValueError):
             run_benchmark_pipeline(
                 raw_text=SAMPLE_JOB_TEXT,
-                llm=llm_mock,
-                embedder=embedder_mock,
+                registry=registry_mock,
             )
 
-        chain = llm_mock.with_structured_output.return_value.__ror__.return_value
-        assert chain.invoke.call_count == MAX_RETRIES
+        assert registry_mock.complete.call_count == MAX_RETRIES
 
     def test_error_message_references_max_retries(self):
-        parser_exc = _make_parser_exception()
-        llm_mock = _make_llm_mock([parser_exc] * MAX_RETRIES)
-        embedder_mock = _make_embedder_mock()
+        registry_mock = _make_registry_mock(
+            [RuntimeError("LLM output did not match schema")] * MAX_RETRIES
+        )
 
         with pytest.raises(ValueError) as exc_info:
             run_benchmark_pipeline(
                 raw_text=SAMPLE_JOB_TEXT,
-                llm=llm_mock,
-                embedder=embedder_mock,
+                registry=registry_mock,
             )
 
         assert "failed after" in str(exc_info.value).lower()
@@ -349,20 +315,19 @@ class TestExhaustedRetries:
 
 
 class TestEmbedFailure:
-    """Extraction succeeds but the embedder raises a RuntimeError."""
+    """Extraction succeeds but registry.embed raises a RuntimeError."""
 
     def test_propagates_embedder_exception(self):
-        llm_mock = _make_llm_mock([VALID_BENCHMARK])
-        embedder_mock = MagicMock()
-        embedder_mock.embed_query = MagicMock(
+        registry_mock = MagicMock()
+        registry_mock.complete = MagicMock(return_value=VALID_BENCHMARK)
+        registry_mock.embed = MagicMock(
             side_effect=RuntimeError("OpenAI embedding endpoint unavailable")
         )
 
         with pytest.raises(RuntimeError, match="embedding endpoint unavailable"):
             run_benchmark_pipeline(
                 raw_text=SAMPLE_JOB_TEXT,
-                llm=llm_mock,
-                embedder=embedder_mock,
+                registry=registry_mock,
             )
 
 

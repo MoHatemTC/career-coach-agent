@@ -3,23 +3,20 @@ from __future__ import annotations
 import logging
 from typing import Any, List, Optional, TypedDict
 
-from langchain_core.exceptions import OutputParserException
-from langchain_core.prompts import ChatPromptTemplate
-# Langfuse is optional observability — disabled due to API incompatibility
-# (LangchainCallbackHandler no longer accepts 'trace_name' kwarg).
-_LANGFUSE_AVAILABLE = False
-_LangfuseHandler = None
 from langgraph.graph import END, StateGraph
 from pydantic import ValidationError
 from sqlmodel import Session
 
-from app.core.llm import get_shared_embedder, get_shared_llm
+from app.ai.prompts import PromptBuilder
+from app.ai.registry import LLMServiceRegistry, get_registry
 from app.models.role_benchmark import RoleBenchmark as RoleBenchmarkModel
 from app.schemas.role_benchmark import RoleBenchmark
 
 logger = logging.getLogger(__name__)
 
 MAX_RETRIES: int = 3
+
+_prompt_builder = PromptBuilder()
 
 
 class BenchmarkState(TypedDict):
@@ -32,74 +29,49 @@ class BenchmarkState(TypedDict):
     validation_errors: List[str]
 
 
-_SYSTEM_PROMPT = (
-    "You are an expert technical recruiter. "
-    "Extract structured information from the job description provided by the user. "
-    "Be precise and follow the schema exactly."
-)
-
-_HUMAN_PROMPT = "Job Description:\n\n{raw_text}"
-
-extraction_prompt = ChatPromptTemplate.from_messages(
-    [
-        ("system", _SYSTEM_PROMPT),
-        ("human", _HUMAN_PROMPT),
-    ]
-)
-
-
-def make_extract_node(llm: Any | None = None):
-    """Return an extract node function bound to the given LLM."""
-    resolved_llm: Any = llm if llm is not None else get_shared_llm()
-    chain = extraction_prompt | resolved_llm.with_structured_output(RoleBenchmark)
+def make_extract_node(registry: LLMServiceRegistry | None = None):
+    """Return an extract node function bound to the given registry."""
+    resolved_registry: LLMServiceRegistry = registry if registry is not None else get_registry()
 
     def extract(state: BenchmarkState) -> BenchmarkState:
         attempt = state["error_count"] + 1
         logger.debug("extract node – attempt %d / %d", attempt, MAX_RETRIES)
 
-        langfuse_handler = (
-            _LangfuseHandler(
-                trace_name="role_benchmark_extraction",
-                metadata={"attempt": attempt, "max_retries": MAX_RETRIES},
-            )
-            if _LANGFUSE_AVAILABLE
-            else None
-        )
+        messages = _prompt_builder.build_role_benchmark_messages(state["raw_text"])
 
         try:
-            callbacks = [langfuse_handler] if langfuse_handler is not None else []
-            result: RoleBenchmark = chain.invoke(
-                {"raw_text": state["raw_text"]},
-                config={"callbacks": callbacks},
+            result: RoleBenchmark = resolved_registry.complete(
+                messages,
+                response_format=RoleBenchmark,
             )
             return {
                 **state,
                 "extracted_data": result,
             }
-        except (ValidationError, OutputParserException) as exc:
-            exc_type = type(exc).__name__
-            logger.warning("%s on attempt %d: %s", exc_type, attempt, exc)
-            error_msg: str = (
-                ", ".join(str(e) for e in exc.errors())
-                if isinstance(exc, ValidationError)
-                else str(exc)
-            )
+        except ValidationError as exc:
+            logger.warning("ValidationError on attempt %d: %s", attempt, exc)
+            error_msg: str = ", ".join(str(e) for e in exc.errors())
             return {
                 **state,
                 "extracted_data": None,
                 "validation_errors": state["validation_errors"] + [error_msg],
                 "error_count": state["error_count"] + 1,
             }
-        finally:
-            if langfuse_handler is not None:
-                langfuse_handler.flush()
+        except Exception as exc:
+            logger.warning("Extraction error on attempt %d: %s", attempt, exc)
+            return {
+                **state,
+                "extracted_data": None,
+                "validation_errors": state["validation_errors"] + [str(exc)],
+                "error_count": state["error_count"] + 1,
+            }
 
     return extract
 
 
-def make_embed_node(embedder: Any | None = None):
-    """Return an embed node function bound to the given embedder."""
-    resolved_embedder: Any = embedder if embedder is not None else get_shared_embedder()
+def make_embed_node(registry: LLMServiceRegistry | None = None):
+    """Return an embed node function bound to the given registry."""
+    resolved_registry: LLMServiceRegistry = registry if registry is not None else get_registry()
 
     def embed(state: BenchmarkState) -> BenchmarkState:
         data: RoleBenchmark = state["extracted_data"]
@@ -113,10 +85,10 @@ def make_embed_node(embedder: Any | None = None):
 
         logger.debug("embed node – embedding %d tokens of combined skills/tools", len(corpus))
 
-        vector: List[float] = resolved_embedder.embed_query(corpus)
+        vectors: List[List[float]] = resolved_registry.embed([corpus])
         return {
             **state,
-            "embedding": vector,
+            "embedding": vectors[0],
         }
 
     return embed
@@ -146,12 +118,12 @@ def route_after_extract(state: BenchmarkState) -> str:
     )
 
 
-def build_graph(llm: Any | None = None, embedder: Any | None = None) -> Any:
+def build_graph(registry: LLMServiceRegistry | None = None) -> Any:
     """Assemble and compile the LangGraph StateGraph."""
     graph = StateGraph(BenchmarkState)
 
-    graph.add_node("extract", make_extract_node(llm))
-    graph.add_node("embed", make_embed_node(embedder))
+    graph.add_node("extract", make_extract_node(registry))
+    graph.add_node("embed", make_embed_node(registry))
 
     graph.set_entry_point("extract")
 
@@ -171,8 +143,7 @@ def build_graph(llm: Any | None = None, embedder: Any | None = None) -> Any:
 
 def run_benchmark_pipeline(
     raw_text: str,
-    llm: Any | None = None,
-    embedder: Any | None = None,
+    registry: LLMServiceRegistry | None = None,
 ) -> BenchmarkState:
     """Execute the full extraction + embedding pipeline for a job description."""
     initial_state: BenchmarkState = {
@@ -183,7 +154,7 @@ def run_benchmark_pipeline(
         "validation_errors": [],
     }
 
-    compiled_graph = build_graph(llm=llm, embedder=embedder)
+    compiled_graph = build_graph(registry=registry)
     final_state: BenchmarkState = compiled_graph.invoke(initial_state)
     return final_state
 

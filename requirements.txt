@@ -11,8 +11,14 @@ alembic>=1.13.1          # optional: database migrations
 
 # ── LangChain / LangGraph ─────────────────────────────────────────────────────
 langchain>=0.2.0
-langchain-openai>=0.1.8  # ChatOpenAI + OpenAIEmbeddings
+langchain-openai>=0.1.8  # ChatOpenAI + OpenAIEmbeddings (compatibility shim only)
+litellm>=1.40.0           # direct LiteLLM SDK — used by LLMServiceRegistry
 langgraph>=0.1.0
+
+# ── LLM Providers ─────────────────────────────────────────────────────────────
+openai>=1.10.0             # OpenAI / LiteLLM proxy (also required by langchain-openai)
+google-generativeai>=0.4.0 # Google Gemini models
+anthropic>=0.18.0          # Anthropic Claude models
 
 # ── Observability ─────────────────────────────────────────────────────────────
 langfuse>=2.0.0          # LLM call tracing (Langfuse cloud or self-hosted)
