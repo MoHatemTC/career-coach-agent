@@ -11,7 +11,7 @@ class ApplicationRequest(BaseModel):
     candidate_id: uuid.UUID = Field(..., description="Unique identifier of the candidate")
     job_id: uuid.UUID = Field(..., description="Unique identifier of the target job")
     candidate_profile: CandidateProfile = Field(..., description="Candidate's current profile")
-    job_description: str = Field(..., description="Full text of the target job description")
+    job_description: Optional[str] = Field(None, description="Full text of the target job description. If not provided, it will be resolved from the JobRepository using job_id.")
 
 class CVTailoringResult(BaseModel):
     """
