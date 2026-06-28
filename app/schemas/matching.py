@@ -33,6 +33,10 @@ class MatchScoreDetails(BaseModel):
 class JobMatchResult(BaseModel):
     """
     The structured output expected from the LLM based on the scoring rubric.
+    
+    WARNING: This result is entirely AI-generated. It represents an initial algorithmic 
+    analysis and drafting. Do not treat these scores or recommendations as definitive 
+    decisions without human review.
     """
     score_details: MatchScoreDetails
     total_score: int = Field(..., ge=0, le=100, description="Sum of score details")
@@ -44,8 +48,13 @@ class JobMatchResult(BaseModel):
 class JobMatchResponse(BaseModel):
     """
     The final response payload returned to the client.
+    
+    WARNING: Contains AI-generated scoring. A mandatory human-in-the-loop review 
+    process must be completed before relying on these matches for hiring decisions.
     """
     job_id: uuid.UUID
     candidate_id: uuid.UUID
     result: JobMatchResult
     vector_distance: Optional[float] = Field(None, description="Pre-filtering vector distance score (e.g., L2)")
+    status: str = Field(default="Draft - Awaiting Human Approval", description="Status of the generated content indicating it requires human review.")
+    disclaimer: str = Field(default="AI-generated content. A human-in-the-loop review is required before use.", description="Responsible AI disclaimer regarding potential hallucinations.")

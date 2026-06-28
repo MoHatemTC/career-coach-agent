@@ -3,6 +3,8 @@ import json
 import logging
 from typing import TypedDict, Optional, Any
 from langgraph.graph import StateGraph, END
+from langfuse.decorators import observe
+from prometheus_client import Counter, Histogram, REGISTRY
 
 from app.schemas.application_ai import (
     ApplicationRequest,
@@ -15,28 +17,30 @@ from app.db.repositories import JobRepository
 
 logger = logging.getLogger("application_ai")
 
+# --- Prometheus Metrics ---
+def _get_or_create(metric_cls, name, description, labels):
+    try:
+        return metric_cls(name, description, labels)
+    except ValueError:
+        return REGISTRY._names_to_collectors[name]
+
+PIPELINE_REQUESTS = _get_or_create(Counter, "application_ai_requests_total", "Count of application AI requests", ["status"])
+LLM_LATENCY = _get_or_create(Histogram, "llm_call_duration_seconds", "Duration of LLM calls", ["stage"])
+
 # --- 1. State Definition ---
 class ApplicationState(TypedDict):
     """LangGraph State for tracking application materials generation."""
     request: ApplicationRequest
     db: Any  # Database dependency injected from the service layer
-    job_description: str  # Resolved job description (from request or DB)
+    job_description: Optional[str]  # Resolved job description (from request or DB)
     cv_tailoring_result: Optional[CVTailoringResult]
     cover_letter_result: Optional[CoverLetterResult]
     error: Optional[str]
 
 # --- 2. Node Functions ---
-def load_prompt(filename: str) -> str:
-    prompt_path = os.path.join(
-        os.path.dirname(__file__), 
-        "..", "core", "prompts", filename
-    )
-    try:
-        with open(prompt_path, "r", encoding="utf-8") as f:
-            return f.read()
-    except FileNotFoundError:
-        return ""
+# (Prompt templates are now managed by app.ai.prompts.PromptBuilder)
 
+@observe()
 async def job_resolution_node(state: ApplicationState) -> ApplicationState:
     """Stage 0: Resolve job description from DB if not provided in the request."""
     request = state["request"]
@@ -61,38 +65,52 @@ async def job_resolution_node(state: ApplicationState) -> ApplicationState:
     logger.info(f"Resolved job description from DB | job_id={request.job_id}")
     return state
 
+@observe()
 async def input_validation_node(state: ApplicationState) -> ApplicationState:
     """Stage 1: Content Moderation & PII Scrubbing"""
     job_description = state["job_description"]
     
-    # Very basic content moderation for inappropriate words in job description
-    blocked_keywords = ["hate", "violence", "illegal"]
-    desc_lower = job_description.lower()
+    # LLM-based content moderation
+    moderation_prompt = f"Analyze the following job description. Does it contain hate speech, promote violence, or request illegal activities? Respond with a JSON object containing a boolean 'is_safe' and a string 'reason'.\n\nJob Description:\n{job_description}"
+    messages = [{"role": "system", "content": moderation_prompt}]
+    model_name = os.getenv("DEFAULT_MODEL", "azure/FW-Kimi-K2.6")
     
-    for kw in blocked_keywords:
-        if kw in desc_lower:
-            state["error"] = f"Job description blocked by content moderation: contains inappropriate content."
-            return state
+    try:
+        with LLM_LATENCY.labels(stage="content_moderation").time():
+            llm_content = await LLMServiceRegistry.generate_json(model_name=model_name, messages=messages)
             
-    # Scrub PII
-    safe_profile = state["request"].candidate_profile.model_copy(deep=True)
-    safe_profile.name = "REDACTED"
-    safe_profile.contact = {}
+        moderation_result = json.loads(llm_content)
+        if not moderation_result.get("is_safe", True):
+            state["error"] = f"Job description blocked by content moderation: {moderation_result.get('reason', 'contains inappropriate content')}."
+            return state
+    except Exception as e:
+        logger.error(f"Moderation check failed, defaulting to safe. Error: {str(e)}")
+            
+    # Scrub PII safely using update dict to avoid mutating frozen models
+    safe_profile = state["request"].candidate_profile.model_copy(
+        update={"name": "REDACTED", "contact": {}}
+    )
     
-    # Update request with scrubbed profile
-    state["request"].candidate_profile = safe_profile
+    # Update request with scrubbed profile safely
+    updated_request = state["request"].model_copy(
+        update={"candidate_profile": safe_profile}
+    )
+    state["request"] = updated_request
     return state
 
+@observe()
 async def cv_tailoring_node(state: ApplicationState) -> ApplicationState:
     """Stage 2: CV Tailoring using LLM"""
+    from app.ai.prompts import PromptBuilder
     request = state["request"]
     job_description = state["job_description"]
-    prompt_template = load_prompt("cv_tailoring.md")
     
     candidate_profile_json = request.candidate_profile.model_dump_json()
     
-    prompt = prompt_template.replace("{candidate_profile}", candidate_profile_json)
-    prompt = prompt.replace("{job_description}", job_description)
+    prompt = PromptBuilder.build_cv_tailoring_prompt(
+        candidate_profile=candidate_profile_json,
+        job_description=job_description
+    )
     
     messages = [
         {"role": "system", "content": prompt}
@@ -101,7 +119,8 @@ async def cv_tailoring_node(state: ApplicationState) -> ApplicationState:
     model_name = os.getenv("DEFAULT_MODEL", "azure/FW-Kimi-K2.6")
     
     try:
-        llm_content = await LLMServiceRegistry.generate_json(model_name=model_name, messages=messages)
+        with LLM_LATENCY.labels(stage="cv_tailoring").time():
+            llm_content = await LLMServiceRegistry.generate_json(model_name=model_name, messages=messages)
         result = CVTailoringResult.model_validate_json(llm_content)
         state["cv_tailoring_result"] = result
         logger.info(f"CV Tailoring successful | candidate_id={request.candidate_id} | job_id={request.job_id}")
@@ -111,17 +130,20 @@ async def cv_tailoring_node(state: ApplicationState) -> ApplicationState:
         
     return state
 
+@observe()
 async def cover_letter_node(state: ApplicationState) -> ApplicationState:
     """Stage 3: Cover Letter Generation using LLM"""
+    from app.ai.prompts import PromptBuilder
     request = state["request"]
     job_description = state["job_description"]
     cv_result = state["cv_tailoring_result"]
-    prompt_template = load_prompt("cover_letter.md")
     
     cv_result_json = cv_result.model_dump_json() if cv_result else "{}"
     
-    prompt = prompt_template.replace("{cv_tailoring_result}", cv_result_json)
-    prompt = prompt.replace("{job_description}", job_description)
+    prompt = PromptBuilder.build_cover_letter_prompt(
+        cv_tailoring_result=cv_result_json,
+        job_description=job_description
+    )
     
     messages = [
         {"role": "system", "content": prompt}
@@ -130,7 +152,8 @@ async def cover_letter_node(state: ApplicationState) -> ApplicationState:
     model_name = os.getenv("DEFAULT_MODEL", "azure/FW-Kimi-K2.6")
     
     try:
-        llm_content = await LLMServiceRegistry.generate_json(model_name=model_name, messages=messages)
+        with LLM_LATENCY.labels(stage="cover_letter").time():
+            llm_content = await LLMServiceRegistry.generate_json(model_name=model_name, messages=messages)
         result = CoverLetterResult.model_validate_json(llm_content)
         state["cover_letter_result"] = result
         logger.info(f"Cover Letter Generation successful | candidate_id={request.candidate_id} | job_id={request.job_id}")
@@ -201,7 +224,7 @@ class ApplicationAIService:
         initial_state = {
             "request": request,
             "db": self.db,
-            "job_description": request.job_description or "",
+            "job_description": request.job_description,
             "cv_tailoring_result": None,
             "cover_letter_result": None,
             "error": None
@@ -210,8 +233,10 @@ class ApplicationAIService:
         final_state = await compiled_application_graph.ainvoke(initial_state)
         
         if final_state.get("error"):
+            PIPELINE_REQUESTS.labels(status="error").inc()
             raise ValueError(final_state["error"])
             
+        PIPELINE_REQUESTS.labels(status="success").inc()
         return ApplicationResponse(
             candidate_id=request.candidate_id,
             job_id=request.job_id,

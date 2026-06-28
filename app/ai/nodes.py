@@ -44,17 +44,7 @@ async def llm_evaluation_node(state: MatchingState) -> MatchingState:
     request = state["request"]
     target_job = state["target_job"]
     
-    prompt_path = os.path.join(
-        os.path.dirname(__file__), 
-        "..", "core", "prompts", "job_matching.md"
-    )
-    try:
-        with open(prompt_path, "r", encoding="utf-8") as f:
-            prompt_template = f.read()
-    except FileNotFoundError:
-        # Fallback to python string prompt if markdown file is missing
-        from app.ai.prompts import JOB_MATCHING_PROMPT
-        prompt_template = JOB_MATCHING_PROMPT
+    from app.ai.prompts import PromptBuilder
 
     # Scrub PII before inference
     safe_profile = request.candidate_profile.model_copy(deep=True)
@@ -62,9 +52,13 @@ async def llm_evaluation_node(state: MatchingState) -> MatchingState:
     safe_profile.contact = {}
     candidate_profile_json = safe_profile.model_dump_json()
     
+    prompt_content = PromptBuilder.build_job_matching_prompt(
+        candidate_profile=candidate_profile_json,
+        job_description=target_job.description
+    )
+    
     messages = [
-        {"role": "system", "content": prompt_template},
-        {"role": "user", "content": f"Candidate Profile:\n{candidate_profile_json}\n\nJob Description:\n{target_job.description}"}
+        {"role": "system", "content": prompt_content}
     ]
 
     model_name = os.getenv("DEFAULT_MODEL", "azure/FW-Kimi-K2.6")

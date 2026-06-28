@@ -5,14 +5,17 @@ from app.db.repositories import JobRepository, InMemoryJobRepository
 
 router = APIRouter(prefix="/applications", tags=["Application AI"])
 
+from typing import AsyncGenerator
+
 # --- Dependency Injection ---
-# Shared singleton repository instance (same pattern as matches endpoint)
-_shared_job_repository = InMemoryJobRepository()
 
-
-def get_job_repository() -> JobRepository:
-    """Provides the shared JobRepository instance."""
-    return _shared_job_repository
+async def get_job_repository() -> AsyncGenerator[JobRepository, None]:
+    """Provides a scoped JobRepository instance for the request lifecycle."""
+    db = InMemoryJobRepository()
+    try:
+        yield db
+    finally:
+        await db.close()
 
 
 def get_application_service(

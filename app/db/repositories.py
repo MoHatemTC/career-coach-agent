@@ -27,6 +27,10 @@ class JobRepository:
         """Perform a vector search using pgvector L2/cosine distance."""
         raise NotImplementedError
 
+    async def close(self) -> None:
+        """Close the database connection/session."""
+        raise NotImplementedError
+
 import math
 
 class InMemoryJobRepository(JobRepository):
@@ -55,3 +59,7 @@ class InMemoryJobRepository(JobRepository):
         # Sort by distance (lower is better for L2)
         results.sort(key=lambda x: x[1])
         return results[:limit]
+
+    async def close(self) -> None:
+        """Simulate closing the database connection."""
+        pass

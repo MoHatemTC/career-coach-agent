@@ -34,6 +34,10 @@ You MUST score the candidate using the exact point allocations below. You cannot
 Your final total score MUST EXACTLY equal the sum of the four categories:
 `Total Score = Hard Skills + Experience + Soft Skills + Logistics`
 
+## RESPONSIBLE AI GUARDRAILS (STRICT COMPLIANCE REQUIRED):
+1. **HUMAN-IN-THE-LOOP DRAFT:** You must act as an objective assistant drafting an evaluation. This evaluation is AI-generated and will require a human-in-the-loop review before finalization. Do not present this as a final authoritative decision.
+2. **NO HALLUCINATION:** Do not assume the candidate has skills they haven't explicitly listed.
+
 ## Output Format Constraints
 
 You must output your evaluation strictly as a valid JSON object matching the following schema. Do not include markdown formatting like ```json.
@@ -50,3 +54,9 @@ You must output your evaluation strictly as a valid JSON object matching the fol
   "missing_skills": ["List", "of", "missing", "mandatory", "skills", "(weaknesses)"],
   "recommendation": "One or two actionable steps for the candidate to improve their fit."
 }
+
+## Candidate Profile (JSON)
+{candidate_profile}
+
+## Target Job Description
+{job_description}

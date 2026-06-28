@@ -53,12 +53,13 @@ def mock_cover_letter_response():
 # --- Existing Tests (Updated for new constructor) ---
 
 @pytest.mark.asyncio
-@patch("app.services.application_ai_service.LLMServiceRegistry.generate_json")
+@patch("app.services.application_ai_service.LLMServiceRegistry.generate_json", new_callable=AsyncMock)
 async def test_application_ai_service_success(
     mock_generate_json, sample_request, mock_cv_tailoring_response, mock_cover_letter_response
 ):
     """Test the full happy-path pipeline with job_description provided directly."""
     mock_generate_json.side_effect = [
+        json.dumps({"is_safe": True}),
         mock_cv_tailoring_response,
         mock_cover_letter_response,
     ]
@@ -77,16 +78,19 @@ async def test_application_ai_service_success(
     assert response.cover_letter.draft_content.startswith("Dear Hiring Manager")
 
     # Check that PII was scrubbed
-    first_call_args = mock_generate_json.call_args_list[0][1]
-    prompt_content = first_call_args["messages"][0]["content"]
-    assert "John Doe" not in prompt_content
-    assert "REDACTED" in prompt_content
+    # We check all calls to generate_json to ensure PII wasn't leaked anywhere
+    all_calls_str = str(mock_generate_json.call_args_list)
+    assert "john@example.com" not in all_calls_str
+    assert "John Doe" not in all_calls_str
+    assert "REDACTED" in all_calls_str
 
 
 @pytest.mark.asyncio
-async def test_application_ai_service_content_moderation_failure(sample_request):
+@patch("app.services.application_ai_service.LLMServiceRegistry.generate_json", new_callable=AsyncMock)
+async def test_application_ai_service_content_moderation_failure(mock_generate_json, sample_request):
     """Test that job descriptions with blocked keywords are rejected."""
     sample_request.job_description = "We encourage hate speech in our workplace."
+    mock_generate_json.side_effect = [json.dumps({"is_safe": False, "reason": "Contains hate speech"})]
 
     service = ApplicationAIService()
 
@@ -97,7 +101,7 @@ async def test_application_ai_service_content_moderation_failure(sample_request)
 # --- New Tests: JobRepository Integration ---
 
 @pytest.mark.asyncio
-@patch("app.services.application_ai_service.LLMServiceRegistry.generate_json")
+@patch("app.services.application_ai_service.LLMServiceRegistry.generate_json", new_callable=AsyncMock)
 async def test_job_resolution_from_db(
     mock_generate_json, sample_candidate_profile, mock_cv_tailoring_response, mock_cover_letter_response
 ):
@@ -113,6 +117,7 @@ async def test_job_resolution_from_db(
     )
 
     mock_generate_json.side_effect = [
+        json.dumps({"is_safe": True}),
         mock_cv_tailoring_response,
         mock_cover_letter_response,
     ]
@@ -171,10 +176,13 @@ async def test_no_db_and_no_job_description(sample_candidate_profile):
 # --- New Tests: LLM Failure Edge Cases ---
 
 @pytest.mark.asyncio
-@patch("app.services.application_ai_service.LLMServiceRegistry.generate_json")
+@patch("app.services.application_ai_service.LLMServiceRegistry.generate_json", new_callable=AsyncMock)
 async def test_cv_tailoring_llm_failure(mock_generate_json, sample_request):
     """Test graceful error handling when the CV tailoring LLM call fails."""
-    mock_generate_json.side_effect = Exception("LLM API timeout")
+    mock_generate_json.side_effect = [
+        json.dumps({"is_safe": True}),
+        Exception("LLM API timeout")
+    ]
 
     service = ApplicationAIService()
 
@@ -183,12 +191,13 @@ async def test_cv_tailoring_llm_failure(mock_generate_json, sample_request):
 
 
 @pytest.mark.asyncio
-@patch("app.services.application_ai_service.LLMServiceRegistry.generate_json")
+@patch("app.services.application_ai_service.LLMServiceRegistry.generate_json", new_callable=AsyncMock)
 async def test_cover_letter_llm_failure(
     mock_generate_json, sample_request, mock_cv_tailoring_response
 ):
     """Test graceful error handling when CV tailoring succeeds but cover letter LLM call fails."""
     mock_generate_json.side_effect = [
+        json.dumps({"is_safe": True}),
         mock_cv_tailoring_response,
         Exception("LLM API timeout"),
     ]
@@ -202,12 +211,13 @@ async def test_cover_letter_llm_failure(
 # --- New Tests: Edge Cases ---
 
 @pytest.mark.asyncio
-@patch("app.services.application_ai_service.LLMServiceRegistry.generate_json")
+@patch("app.services.application_ai_service.LLMServiceRegistry.generate_json", new_callable=AsyncMock)
 async def test_empty_skills_candidate(
     mock_generate_json, mock_cv_tailoring_response, mock_cover_letter_response
 ):
     """Test that the pipeline handles candidates with no skills gracefully."""
     mock_generate_json.side_effect = [
+        json.dumps({"is_safe": True}),
         mock_cv_tailoring_response,
         mock_cover_letter_response,
     ]
@@ -231,12 +241,13 @@ async def test_empty_skills_candidate(
 
 
 @pytest.mark.asyncio
-@patch("app.services.application_ai_service.LLMServiceRegistry.generate_json")
+@patch("app.services.application_ai_service.LLMServiceRegistry.generate_json", new_callable=AsyncMock)
 async def test_pii_scrubbing_removes_contact_info(
     mock_generate_json, sample_request, mock_cv_tailoring_response, mock_cover_letter_response
 ):
     """Test that both name and contact info are scrubbed before LLM calls."""
     mock_generate_json.side_effect = [
+        json.dumps({"is_safe": True}),
         mock_cv_tailoring_response,
         mock_cover_letter_response,
     ]
@@ -245,7 +256,6 @@ async def test_pii_scrubbing_removes_contact_info(
     await service.generate_application_materials(sample_request)
 
     # Inspect all LLM calls to verify PII is not present
-    for call in mock_generate_json.call_args_list:
-        prompt_content = call[1]["messages"][0]["content"]
-        assert "john@example.com" not in prompt_content
-        assert "John Doe" not in prompt_content
+    all_calls_str = str(mock_generate_json.call_args_list)
+    assert "john@example.com" not in all_calls_str
+    assert "John Doe" not in all_calls_str

@@ -95,7 +95,9 @@ Every match produces a `JobMatchResponse` JSON payload suitable for ranking, log
     "strengths": ["Python", "FastAPI", "LLM Orchestration"],
     "missing_skills": [],
     "recommendation": "Strongly recommend moving to interview phase."
-  }
+  },
+  "status": "Draft - Awaiting Human Approval",
+  "disclaimer": "AI-generated content. A human-in-the-loop review is required before use."
 }
 ```
 
@@ -117,8 +119,14 @@ Three candidate personas were created in `tests/services/mock_data.py` to test t
 
 - **Advisory Only:** The matching engine relies on probabilistic LLM evaluation. Match scores should be treated as **advisory suggestions** to assist human recruiters, rather than definitive automated decisions.
 - **Context Window Limits:** While the proxy supports large context models, passing extremely large CV documents or multiple concurrent job descriptions may approach token limits, resulting in truncated evaluation.
-- **Latency:** Stage 2 relies on external LLM inference, which inherently introduces latency. High-throughput scenarios should rely heavily on Stage 1 (vector pre-filtering) to reduce LLM calls.
-- **Bias and Hallucination:** LLMs can occasionally hallucinate skills or implicitly favor certain phrasing over others. We continually refine our rubric prompts to mitigate this, but human oversight is recommended.
+- **Latency**: Stage 2 relies on external LLM inference, which inherently introduces latency. High-throughput scenarios should rely heavily on Stage 1 (vector pre-filtering) to reduce LLM calls.
+- **Bias and Hallucination**: LLMs can occasionally hallucinate skills or implicitly favor certain phrasing over others. We continually refine our rubric prompts to mitigate this, but human oversight is recommended.
+
+---
+
+## Human in the Loop (HITL)
+
+As a critical safety net, all AI-generated job matches and evaluations are explicitly marked as drafts awaiting human approval. Because Large Language Models can occasionally hallucinate, show bias, or miss subtle context, a real person—like a career coach or recruiter—must review, verify, and approve the matching results before any definitive action is taken. The API reflects this status by returning a warning flag and a disclaimer indicating that the evaluation requires human oversight.
 
 ---
 
@@ -172,6 +180,8 @@ curl -X POST "http://localhost:8000/matches/" \
     "strengths": ["Python", "FastAPI", "LLM Orchestration"],
     "missing_skills": [],
     "recommendation": "Strongly recommend moving to interview phase."
-  }
+  },
+  "status": "Draft - Awaiting Human Approval",
+  "disclaimer": "AI-generated content. A human-in-the-loop review is required before use."
 }
 ```

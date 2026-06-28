@@ -5,9 +5,15 @@ from app.db.repositories import JobRepository
 
 router = APIRouter(prefix="/matches", tags=["Job Matching"])
 
-def get_job_repository() -> JobRepository:
+from typing import AsyncGenerator
+
+async def get_job_repository() -> AsyncGenerator[JobRepository, None]:
     from app.db.repositories import InMemoryJobRepository
-    return InMemoryJobRepository()
+    db = InMemoryJobRepository()
+    try:
+        yield db
+    finally:
+        await db.close()
 
 def get_matching_service(db: JobRepository = Depends(get_job_repository)) -> JobMatchingService:
     return JobMatchingService(db=db)

@@ -8,6 +8,13 @@ The Application AI Service is responsible for the CV Tailoring and Cover Letter 
 
 This feature is orchestrated using **LangGraph**, providing a resilient, multi-step pipeline that natively supports state management and early-abort semantics (e.g., if content moderation fails or a job is not found).
 
+### Observability & Metrics
+
+- **Langfuse Tracing:** All LangGraph nodes (`job_resolution_node`, `input_validation_node`, `cv_tailoring_node`, `cover_letter_node`) are instrumented using Langfuse's `@observe()` decorator. This provides comprehensive span tracing, allowing us to inspect intermediate states, execution times, and LLM requests within the Langfuse dashboard.
+- **Prometheus Metrics:** We use `prometheus-client` to export key operational metrics:
+  - `application_ai_requests_total` (Counter): Tracks the total number of pipeline requests broken down by `status` (`success`, `error`).
+  - `llm_call_duration_seconds` (Histogram): Tracks the latency of individual LLM generation calls broken down by `stage` (`content_moderation`, `cv_tailoring`, `cover_letter`).
+
 ### Pipeline Flow
 
 ```
@@ -22,7 +29,7 @@ START → [job_resolution_node] → [input_validation_node] → [cv_tailoring_no
 |---|---|---|
 | `request` | `ApplicationRequest` | Service (initial injection) |
 | `db` | `JobRepository` | Service (dependency injection) |
-| `job_description` | `str` | `job_resolution_node` |
+| `job_description` | `Optional[str]` | `job_resolution_node` |
 | `cv_tailoring_result` | `CVTailoringResult` | `cv_tailoring_node` |
 | `cover_letter_result` | `CoverLetterResult` | `cover_letter_node` |
 | `error` | `str` | Any node (triggers early abort) |
@@ -40,11 +47,13 @@ START → [job_resolution_node] → [input_validation_node] → [cv_tailoring_no
 
 3. **CV Tailoring Node (`cv_tailoring_node`)** — *Stage 2*
    - Ingests the scrubbed profile and job description.
-   - Prompts the LLM (`cv_tailoring.md`) to generate a customized summary, highlight relevant skills, identify missing skills, and suggest bullet-point rewrites.
+   - Leverages `app.ai.prompts.PromptBuilder` to dynamically construct the LLM prompt (`cv_tailoring.md`).
+   - Prompts the LLM to generate a customized summary, highlight relevant skills, identify missing skills, and suggest bullet-point rewrites.
 
 4. **Cover Letter Generation Node (`cover_letter_node`)** — *Stage 3*
    - Takes the output of the CV Tailoring Node and the job description.
-   - Prompts the LLM (`cover_letter.md`) to write a professional cover letter draft and analyze the tone used.
+   - Leverages `app.ai.prompts.PromptBuilder` to dynamically construct the LLM prompt (`cover_letter.md`).
+   - Prompts the LLM to write a professional cover letter draft and analyze the tone used.
 
 ---
 
@@ -98,7 +107,9 @@ Generates tailored CV suggestions and a cover letter draft for a candidate targe
   "cover_letter": {
     "draft_content": "Dear Hiring Manager,\n\nI am writing to express my strong interest in the Senior Python Backend Engineer position. With 3 years of dedicated experience building high-performance backend systems using Python and FastAPI, I am confident in my ability to contribute meaningfully to your team...",
     "tone_analysis": "Professional and confident, with emphasis on technical alignment and growth mindset."
-  }
+  },
+  "status": "Draft - Awaiting Human Approval",
+  "disclaimer": "AI-generated content. A human-in-the-loop review is required before use."
 }
 ```
 
@@ -144,7 +155,13 @@ We enforce several strict guardrails through prompt engineering and pipeline des
 - **Separation of Missing Skills**: Required skills the candidate lacks are segregated into a `missing_skills` array, ensuring they aren't falsely claimed in the CV or Cover Letter.
 - **Professional, Bias-Free Tone**: The cover letter prompt enforces inclusive language free of demographic biases.
 - **Data Privacy**: PII is scrubbed in the `input_validation_node` prior to any LLM API calls.
-- **Content Moderation**: Hardcoded filters block inappropriate job descriptions before any LLM execution occurs.
+- **Content Moderation**: An LLM-powered content moderation step (`input_validation_node`) analyzes the job description for hate speech, violence, or illegal activities and aborts the pipeline if flagged.
+
+---
+
+## Human in the Loop (HITL)
+
+As a critical safety net, all AI-generated application materials (CV suggestions and Cover Letters) are explicitly marked as drafts awaiting human approval. Because Large Language Models can occasionally hallucinate or miss subtle context, a real person—like the candidate or a career coach—must review, verify, and approve the content before it is finalized or sent to recruiters. The API reflects this status by returning a warning flag and a disclaimer indicating that the content requires human oversight.
 
 ---
 
@@ -199,6 +216,16 @@ curl -X POST http://localhost:8000/api/v1/applications/ \
      -H "Content-Type: application/json" \
      -d '{ ... }'
 ```
+
+### Docker deployment
+
+A standard `Dockerfile` and `docker-compose.yml` are provided. To run the service using Docker:
+
+```bash
+docker-compose up --build
+```
+Ensure you have set the necessary environment variables (`LITELLM_API_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_PUBLIC_KEY`, etc.) in a `.env` file or exported in your environment.
+
 
 ---
 

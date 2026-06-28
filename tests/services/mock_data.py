@@ -51,3 +51,35 @@ MOCK_JOB_DATA = {
     ),
     "embedding": [0.01] * 1536
 }
+
+# --- Mock Application AI Data ---
+MOCK_CV_TAILORING_RESULT = {
+    "tailored_summary": "Highly motivated Software Engineer with 5+ years of experience specializing in Python, FastAPI, and PostgreSQL. Proven track record in orchestrating LLM pipelines and leading cross-functional remote teams.",
+    "highlighted_skills": [
+        "Python",
+        "FastAPI",
+        "PostgreSQL",
+        "LLM Orchestration",
+        "Leadership",
+        "Communication"
+    ],
+    "missing_skills": [],
+    "bullet_point_suggestions": [
+        "Rephrase 'Worked on backend services' to 'Designed and implemented scalable backend services using FastAPI and PostgreSQL.'",
+        "Highlight specific metrics for LLM integration, e.g., 'Reduced latency in LLM orchestration pipeline by 20%.'"
+    ]
+}
+
+MOCK_COVER_LETTER_RESULT = {
+    "draft_content": "Dear Hiring Manager,\n\nI am writing to express my strong interest in the Senior AI Backend Engineer position at your company. With over 5 years of experience building robust backends using Python, FastAPI, and PostgreSQL, alongside my recent focus on LLM Orchestration, I am confident in my ability to immediately contribute to your engineering team.\n\nThroughout my career, I have consistently demonstrated strong leadership and communication skills, effectively collaborating in 100% remote environments. I am particularly drawn to your company's innovative work in AI and am eager to bring my technical expertise and problem-solving mindset to your team.\n\nThank you for your time and consideration. I look forward to discussing how my skills and experiences align with your needs.\n\nSincerely,\n[Your Name]",
+    "tone_analysis": "Professional, confident, and enthusiastic, highlighting relevant technical skills and cultural fit for a remote environment."
+}
+
+MOCK_APPLICATION_RESPONSE = {
+    "candidate_id": str(CANDIDATE_ID),
+    "job_id": str(TARGET_JOB_ID),
+    "cv_tailoring": MOCK_CV_TAILORING_RESULT,
+    "cover_letter": MOCK_COVER_LETTER_RESULT,
+    "status": "Draft - Awaiting Human Approval",
+    "disclaimer": "AI-generated content. A human-in-the-loop review is required before use."
+}

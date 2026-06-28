@@ -30,6 +30,22 @@ To ensure independent workflows and high maintainability, we've structured the c
 - **Decoupled Prompt Management (`app/ai/prompts.py`)**: Prompts and their builders are decoupled from execution logic, allowing prompt engineers to refine instructions based on rigorous input/output contracts.
 - **Independent Testing Layer (`tests/`)**: Structural tests and strict security validations operate independently in our CI pipeline.
 
+## Assumptions and Limitations
+
+To ensure transparency and manage expectations, the following assumptions and technical limitations are explicitly called out:
+
+- **Shared LLM Registry via Proxy**: All LLM inference calls are routed through a shared `LLMServiceRegistry` using the LiteLLM proxy. It is assumed the proxy handles robust fallback and rate-limiting. A critical limitation is that if the central proxy is down, all AI features (job matching, CV tailoring, cover letter generation) will fail simultaneously.
+- **Structured Output Parsing**: The service layer relies strictly on Pydantic models (`CVTailoringResult`, `CoverLetterResult`) alongside LiteLLM's `json_object` format enforcement. It is assumed the underlying model accurately follows the JSON schema. Occasional LLM hallucination of field names or malformed JSON could cause the `model_validate_json` step to raise validation errors, though the graph orchestration handles these gracefully by surfacing the error to the user.
+- **Responsible AI and Human-in-the-Loop**: All AI-generated application materials (CV suggestions and Cover Letters) are explicitly returned with a `Draft - Awaiting Human Approval` status and a Responsible AI disclaimer. The AI cannot guarantee factual accuracy regarding a candidate's unspoken skills and may hallucinate experiences. A strict human-in-the-loop review is assumed and required before any submission.
+- **Schema Consistency**: Typed request and response schemas (`ApplicationRequest`, `ApplicationResponse`) are strictly enforced across all API routes and tests. It is assumed that the client will provide well-formed UUIDs and complete `CandidateProfile` objects.
+
+### User-Data Privacy Guidance
+
+Protecting candidate data is a primary concern. To ensure compliance with privacy standards, the following guidelines are strictly enforced:
+- **PII Scrubbing**: Before any data is transmitted to the LLM Service Registry, Personally Identifiable Information (PII) such as the candidate's exact name, email address, and phone numbers are explicitly scrubbed and replaced with "REDACTED" in the service layer (`ApplicationAIService`).
+- **Data Retention**: The proxy and underlying LLM models are assumed to be configured with zero-data-retention policies.
+- **Log Masking**: System logs (`logger.info`, `logger.error`) must never record candidate profile JSONs. Only unique UUIDs (`candidate_id`, `job_id`) and processing outcomes should be written to standard output.
+
 ## Getting Started
 
 1. **Install Dependencies:**

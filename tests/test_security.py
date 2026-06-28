@@ -10,13 +10,13 @@ def test_no_hardcoded_secrets_in_repo():
     
     # Define secret patterns to look for
     secret_patterns = [
-        "LITELLM_API_KEY=",
-        "OPENAI_API_KEY=",
-        "GEMINI_API_KEY=",
-        "ANTHROPIC_API_KEY=",
-        "sk-ant-",
-        "sk-proj-",
-        "sk-or-"
+        "LITELLM_" + "API_KEY=",
+        "OPENAI_" + "API_KEY=",
+        "GEMINI_" + "API_KEY=",
+        "ANTHROPIC_" + "API_KEY=",
+        "sk" + "-ant-",
+        "sk" + "-proj-",
+        "sk" + "-or-"
     ]
     
     # Collect relevant files, ignoring virtual environments and .git
