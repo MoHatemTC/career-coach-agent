@@ -35,3 +35,6 @@ httpx>=0.27.0            # for FastAPI TestClient async mode
 # ── Streamlit UI (Sprint 1) ───────────────────────────────────────────────────
 streamlit>=1.30.0
 pandas>=2.0.0
+
+# ── Local Models ──────────────────────────────────────────────────────────────
+sentence-transformers>=3.0.0

@@ -184,6 +184,10 @@ class LLMServiceRegistry:
         """
         resolved_model = model or self._default_embedding_model
 
+        if resolved_model == "local" or resolved_model == "all-MiniLM-L6-v2":
+            from app.ai.local_embedder import get_local_embedder
+            return get_local_embedder().embed(texts)
+
         response = litellm.embedding(
             model=resolved_model,
             input=texts,

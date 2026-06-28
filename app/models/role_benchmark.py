@@ -1,7 +1,10 @@
+import os
 from typing import List, Optional
 from datetime import datetime
 from sqlmodel import SQLModel, Field, Column, JSON
 from pgvector.sqlalchemy import Vector
+
+_EMBEDDING_DIMENSION = int(os.getenv("EMBEDDING_DIMENSION", "1536"))
 
 
 class RoleBenchmark(SQLModel, table=True):
@@ -23,6 +26,6 @@ class RoleBenchmark(SQLModel, table=True):
     minimum_years: int = Field(default=0)
     seniority_level: str = Field(default="")
     embedding: Optional[List[float]] = Field(
-        default=None, sa_column=Column(Vector(1536))
+        default=None, sa_column=Column(Vector(_EMBEDDING_DIMENSION))
     )
     created_at: datetime = Field(default_factory=datetime.utcnow)
